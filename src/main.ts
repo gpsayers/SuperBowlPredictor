@@ -12,6 +12,9 @@ import {
 } from './firebase'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const adminSessionKey = 'superBowlAdminSessionExpires'
+const adminSessionDuration = 15 * 60 * 1000
+let adminSessionTimer: number | undefined
 const defaultQuestions = [
   ['Coin Toss Result?', ['Heads', 'Tails']],
   ['Gatorade Color poured on winning coach?', ['Orange', 'Blue', 'Red', 'Purple', 'Clear/Water', 'None']],
@@ -95,13 +98,14 @@ async function renderJoin() {
 }
 
 async function renderAdminPanel() {
-  app.innerHTML = page(`<section class="admin-page"><header class="admin-page-header"><div><h1>GAME CONTROL</h1><p>Manage questions and set results.</p></div><button class="admin-add-button" id="show-question-form" type="button"><span aria-hidden="true">+</span> Add Question</button></header><div id="admin-content" class="admin-content">Loading controls...</div></section>`)
+  app.innerHTML = page(`<section class="admin-page"><div id="admin-content" class="admin-content">Loading controls...</div></section>`)
   const content = document.querySelector('#admin-content')!
   try {
     const [questions, users] = await Promise.all([getQuestions(), getUsers()])
     content.innerHTML = `<form id="new-question" class="new-question" hidden><div><label for="new-question-text">Question</label><input id="new-question-text" name="text" required placeholder="Question text"></div><div><label for="new-question-options">Answer options</label><input id="new-question-options" name="options" required placeholder="Options, separated by commas"></div><div class="new-question-actions"><button class="admin-cancel-button" id="cancel-question-form" type="button">Cancel</button><button class="admin-add-button" type="submit">Save Question</button></div></form><section class="admin-section admin-questions"><div class="admin-question-list">${questions.map((question, index) => `<article class="admin-question"><header class="admin-question-header"><div><span class="question-badge">Q${index + 1}</span><strong>${escapeHtml(question.text)}</strong></div><div class="admin-question-actions"><button class="icon-button" type="button" aria-label="Edit question" title="Edit question" data-edit-question="${question.id}">✎</button><button class="icon-button delete-icon" type="button" aria-label="Delete question" title="Delete question" data-delete-question="${question.id}">♧</button></div></header><div class="admin-answer-list">${question.options.map((option) => `<button class="answer-button ${question.correctAnswer === option ? 'correct' : ''}" data-question="${question.id}" data-answer="${escapeHtml(option)}"><span>${escapeHtml(option)}</span><span class="answer-check" aria-hidden="true">${question.correctAnswer === option ? '✓' : '○'}</span></button>`).join('')}</div><p class="admin-question-hint">Tap an option to mark it as the correct answer.</p></article>`).join('') || '<p class="empty">No questions yet.</p>'}</div></section><section class="admin-section admin-players"><h2>Players</h2>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`
     content.querySelector('.admin-players')?.remove()
-    content.insertAdjacentHTML('afterbegin', `<section class="admin-section admin-users"><h2>Manage Users</h2>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`)
+    content.insertAdjacentHTML('afterbegin', `<section class="admin-section admin-users"><h1 class="admin-section-title">Manage Users</h1>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`)
+    content.querySelector('.admin-users')?.insertAdjacentHTML('afterend', `<header class="admin-page-header"><div><h1 class="admin-section-title">GAME CONTROL</h1><p>Manage questions and set results.</p></div><button class="admin-add-button" id="show-question-form" type="button"><span aria-hidden="true">+</span> Add Question</button></header>`)
     let editingQuestionId: string | undefined
     const questionForm = document.querySelector<HTMLFormElement>('#new-question')!
     const questionText = document.querySelector<HTMLInputElement>('#new-question-text')!
@@ -110,11 +114,32 @@ async function renderAdminPanel() {
     document.querySelector<HTMLButtonElement>('#show-question-form')!.addEventListener('click', openQuestionForm)
     document.querySelector<HTMLButtonElement>('#cancel-question-form')!.addEventListener('click', () => { editingQuestionId = undefined; questionForm.reset(); questionForm.hidden = true })
     document.querySelectorAll<HTMLButtonElement>('[data-edit-question]').forEach((button) => button.addEventListener('click', () => { const question = questions.find((item) => item.id === button.dataset.editQuestion); if (!question) return; editingQuestionId = question.id; questionText.value = question.text; questionOptions.value = question.options.join(', '); openQuestionForm() }))
-    document.querySelectorAll<HTMLElement>('[data-delete-user]').forEach((button) => button.addEventListener('click', async () => { await deleteUser(button.dataset.deleteUser!); renderAdmin() }))
-    document.querySelectorAll<HTMLElement>('[data-delete-question]').forEach((button) => button.addEventListener('click', async () => { await deleteQuestion(button.dataset.deleteQuestion!); renderAdmin() }))
-    document.querySelectorAll<HTMLElement>('[data-question]').forEach((button) => button.addEventListener('click', async () => { await updateQuestion(button.dataset.question!, { correctAnswer: button.dataset.answer }); renderAdmin() }))
-    questionForm.addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget as HTMLFormElement); const text = String(form.get('text')); const options = String(form.get('options')).split(',').map((option) => option.trim()).filter(Boolean); if (editingQuestionId) await updateQuestion(editingQuestionId, { text, options }); else await createQuestion(text, options); renderAdmin() })
+    document.querySelectorAll<HTMLElement>('[data-delete-user]').forEach((button) => button.addEventListener('click', async () => { await deleteUser(button.dataset.deleteUser!); renderAdminPanel() }))
+    document.querySelectorAll<HTMLElement>('[data-delete-question]').forEach((button) => button.addEventListener('click', async () => { await deleteQuestion(button.dataset.deleteQuestion!); renderAdminPanel() }))
+    document.querySelectorAll<HTMLElement>('[data-question]').forEach((button) => button.addEventListener('click', async () => { await updateQuestion(button.dataset.question!, { correctAnswer: button.dataset.answer }); renderAdminPanel() }))
+    questionForm.addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget as HTMLFormElement); const text = String(form.get('text')); const options = String(form.get('options')).split(',').map((option) => option.trim()).filter(Boolean); if (editingQuestionId) await updateQuestion(editingQuestionId, { text, options }); else await createQuestion(text, options); renderAdminPanel() })
   } catch (error) { renderError(error) }
+}
+
+function clearAdminSession() {
+  sessionStorage.removeItem(adminSessionKey)
+  if (adminSessionTimer !== undefined) window.clearTimeout(adminSessionTimer)
+  adminSessionTimer = undefined
+}
+
+function scheduleAdminSessionExpiry(expiresAt: number) {
+  if (adminSessionTimer !== undefined) window.clearTimeout(adminSessionTimer)
+  adminSessionTimer = window.setTimeout(() => {
+    clearAdminSession()
+    if (location.hash === '#admin') renderAdmin()
+  }, Math.max(0, expiresAt - Date.now()))
+}
+
+function hasActiveAdminSession() {
+  const expiresAt = Number(sessionStorage.getItem(adminSessionKey))
+  if (!expiresAt || expiresAt <= Date.now()) { clearAdminSession(); return false }
+  scheduleAdminSessionExpiry(expiresAt)
+  return true
 }
 
 async function renderAdmin() {
@@ -135,6 +160,8 @@ async function renderAdmin() {
     </section>`)
     return
   }
+
+  if (hasActiveAdminSession()) { await renderAdminPanel(); return }
 
   app.innerHTML = page(`<section class="admin-auth">
     <div class="admin-auth-card">
@@ -177,6 +204,9 @@ async function renderAdmin() {
       return
     }
 
+    const expiresAt = Date.now() + adminSessionDuration
+    sessionStorage.setItem(adminSessionKey, String(expiresAt))
+    scheduleAdminSessionExpiry(expiresAt)
     await renderAdminPanel()
   })
 }
