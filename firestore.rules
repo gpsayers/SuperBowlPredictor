@@ -2,25 +2,30 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // The leaderboard and questions are publicly readable.
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
     match /settings/submissions {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
     match /questions/{questionId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAdmin();
     }
 
     match /users/{userId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
     }
 
     match /predictions/{predictionId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
     }
   }
 }

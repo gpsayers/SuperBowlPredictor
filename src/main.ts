@@ -10,14 +10,13 @@ import {
   getSubmissionsEnabled,
   getUsers,
   setSubmissionsEnabled,
+  signInAdmin,
+  signOutAdmin,
   updateQuestion,
 } from './firebase'
+import { auth } from './firebase'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
-const adminSessionKey = 'superBowlAdminSessionExpires'
-const adminSessionDuration = 15 * 60 * 1000
-let adminSessionTimer: number | undefined
-
 const escapeHtml = (value: unknown) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!)
 const page = (content: string) => { const view = location.hash.slice(1) || 'home'; const navLink = (route: string, icon: string, label: string) => `<a class="${view === route ? 'active' : ''}" href="#${route}"${view === route ? ' aria-current="page"' : ''}><span class="nav-icon">${icon}</span>${label}</a>`; return `<main class="shell"><nav class="topbar"><a class="brand" href="#home"><span class="brand-mark">SB</span><strong>PREDICTOR</strong> <b>'26</b></a><div class="nav-links">${navLink('home', '♜', 'Leaderboard')}${navLink('join', '♧', 'Join Now')}${navLink('admin', '♢', 'Admin')}</div></nav>${content}<footer><span>Built for the big game</span><span>${firebaseConfigured ? 'Firebase connected' : 'Demo mode'}</span></footer></main>` }
 const loading = (message: string) => page(`<div class="loading"><span class="spinner"></span>${message}</div>`)
@@ -99,12 +98,13 @@ async function renderAdminPanel() {
     content.insertAdjacentHTML('beforeend', `<section class="admin-section submission-control"><div><h2>Submissions</h2><p>Allow visitors to submit new predictions.</p></div><label class="admin-switch"><input id="submissions-enabled" type="checkbox"${submissionsEnabled ? ' checked' : ''}><span aria-hidden="true"></span><strong>${submissionsEnabled ? 'Open' : 'Closed'}</strong></label></section>`)
     content.querySelector('.admin-players')?.remove()
     content.insertAdjacentHTML('afterbegin', `<section class="admin-section admin-users"><h1 class="admin-section-title">Manage Users</h1>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`)
-    content.querySelector('.admin-users')?.insertAdjacentHTML('afterend', `<header class="admin-page-header"><div><h1 class="admin-section-title">GAME CONTROL</h1><p>Manage questions and set results.</p></div><button class="admin-add-button" id="show-question-form" type="button"><span aria-hidden="true">+</span> Add Question</button></header>`)
+    content.querySelector('.admin-users')?.insertAdjacentHTML('afterend', `<header class="admin-page-header"><div><h1 class="admin-section-title">GAME CONTROL</h1><p>Manage questions and set results.</p></div><div><button class="admin-cancel-button" id="admin-logout" type="button">Sign out</button><button class="admin-add-button" id="show-question-form" type="button"><span aria-hidden="true">+</span> Add Question</button></div></header>`)
     let editingQuestionId: string | undefined
     const questionForm = document.querySelector<HTMLFormElement>('#new-question')!
     const questionText = document.querySelector<HTMLInputElement>('#new-question-text')!
     const questionOptions = document.querySelector<HTMLInputElement>('#new-question-options')!
     const openQuestionForm = () => { questionForm.hidden = false; questionText.focus() }
+    document.querySelector<HTMLButtonElement>('#admin-logout')!.addEventListener('click', async () => { await signOutAdmin(); renderAdmin() })
     document.querySelector<HTMLButtonElement>('#show-question-form')!.addEventListener('click', openQuestionForm)
     document.querySelector<HTMLButtonElement>('#cancel-question-form')!.addEventListener('click', () => { editingQuestionId = undefined; questionForm.reset(); questionForm.hidden = true })
     document.querySelectorAll<HTMLButtonElement>('[data-edit-question]').forEach((button) => button.addEventListener('click', () => { const question = questions.find((item) => item.id === button.dataset.editQuestion); if (!question) return; editingQuestionId = question.id; questionText.value = question.text; questionOptions.value = question.options.join(', '); openQuestionForm() }))
@@ -116,47 +116,8 @@ async function renderAdminPanel() {
   } catch (error) { renderError(error) }
 }
 
-function clearAdminSession() {
-  sessionStorage.removeItem(adminSessionKey)
-  if (adminSessionTimer !== undefined) window.clearTimeout(adminSessionTimer)
-  adminSessionTimer = undefined
-}
-
-function scheduleAdminSessionExpiry(expiresAt: number) {
-  if (adminSessionTimer !== undefined) window.clearTimeout(adminSessionTimer)
-  adminSessionTimer = window.setTimeout(() => {
-    clearAdminSession()
-    if (location.hash === '#admin') renderAdmin()
-  }, Math.max(0, expiresAt - Date.now()))
-}
-
-function hasActiveAdminSession() {
-  const expiresAt = Number(sessionStorage.getItem(adminSessionKey))
-  if (!expiresAt || expiresAt <= Date.now()) { clearAdminSession(); return false }
-  scheduleAdminSessionExpiry(expiresAt)
-  return true
-}
-
 async function renderAdmin() {
-  const configuredPassword = import.meta.env.VITE_SUPER_BOWL_ADMIN_PASSWORD?.trim()
-
-  if (!configuredPassword) {
-    app.innerHTML = page(`<section class="admin-auth">
-      <div class="admin-auth-card">
-        <div class="admin-lock" aria-hidden="true">
-          <svg viewBox="0 0 24 24" role="img" aria-label="Admin lock icon">
-            <path d="M7.5 10V7.75A4.5 4.5 0 0 1 12 3.25a4.5 4.5 0 0 1 4.5 4.5V10m-9 0h9a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <h1>ADMIN ACCESS</h1>
-        <p class="admin-config-message">Set VITE_SUPER_BOWL_ADMIN_PASSWORD in your local environment before enabling admin access.</p>
-        <a href="#home" class="admin-back-link">Back to leaderboard</a>
-      </div>
-    </section>`)
-    return
-  }
-
-  if (hasActiveAdminSession()) { await renderAdminPanel(); return }
+  if (auth?.currentUser && !auth.currentUser.isAnonymous) { await renderAdminPanel(); return }
 
   app.innerHTML = page(`<section class="admin-auth">
     <div class="admin-auth-card">
@@ -167,8 +128,9 @@ async function renderAdmin() {
       </div>
       <h1>ADMIN ACCESS</h1>
       <form id="admin-login-form" class="admin-login-form">
+        <input id="admin-email" type="email" name="email" placeholder="Admin email" autocomplete="username" required />
         <div class="admin-password-wrap">
-          <input id="admin-password" type="password" name="password" placeholder="Enter password" required />
+          <input id="admin-password" type="password" name="password" placeholder="Password" autocomplete="current-password" required />
           <button type="button" class="admin-password-toggle" aria-label="Toggle password visibility">⋯</button>
         </div>
         <p class="admin-error" id="admin-form-error"></p>
@@ -178,6 +140,7 @@ async function renderAdmin() {
   </section>`)
 
   const form = document.querySelector<HTMLFormElement>('#admin-login-form')!
+  const email = document.querySelector<HTMLInputElement>('#admin-email')!
   const input = document.querySelector<HTMLInputElement>('#admin-password')!
   const error = document.querySelector<HTMLElement>('#admin-form-error')!
   const toggle = document.querySelector<HTMLButtonElement>('.admin-password-toggle')!
@@ -190,19 +153,19 @@ async function renderAdmin() {
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
-    const enteredPassword = String(new FormData(form).get('password') ?? '').trim()
+    const formData = new FormData(form)
+    const enteredEmail = String(formData.get('email') ?? '').trim()
+    const enteredPassword = String(formData.get('password') ?? '')
     error.textContent = ''
-
-    if (enteredPassword !== configuredPassword) {
-      error.textContent = 'Invalid password.'
-      input.focus()
-      return
+    try {
+      await signInAdmin(enteredEmail, enteredPassword)
+      await renderAdminPanel()
+    } catch (loginError) {
+      error.textContent = loginError instanceof Error && loginError.message.includes('not authorized')
+        ? loginError.message
+        : 'Invalid email or password.'
+      email.focus()
     }
-
-    const expiresAt = Date.now() + adminSessionDuration
-    sessionStorage.setItem(adminSessionKey, String(expiresAt))
-    scheduleAdminSessionExpiry(expiresAt)
-    await renderAdminPanel()
   })
 }
 

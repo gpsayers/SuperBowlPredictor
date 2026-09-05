@@ -12,7 +12,7 @@ A Vite + TypeScript adaptation of the downloaded Super Bowl Predictor app. It in
 
 The app expects Firebase configuration before loading the pool. Once all six values are present, `src/firebase.ts` initializes Firebase Auth and Firestore. Anonymous Auth is used for client writes.
 
-For admin access, set a separate app-specific password in `.env.local` with `VITE_SUPER_BOWL_ADMIN_PASSWORD=your-strong-password`. This should be unrelated to the Vite app config values and should only be used for managing the Super Bowl predictions site. Do not commit a default or hardcoded secret. In a production app, the stronger pattern is to move admin authentication behind a trusted backend or Firebase custom claims rather than a browser-exposed env value.
+For admin access, enable Firebase Email/Password authentication, create an administrator account, and assign it the server-side custom claim `{ admin: true }`. The admin form signs in with Firebase Auth; no admin password is bundled into the browser. Assign custom claims only from a trusted Admin SDK environment, never from browser code. If MFA is enabled for the account, add a Firebase multi-factor challenge flow before enforcing MFA for this client.
 
 ## Firestore collections
 
@@ -23,10 +23,10 @@ For admin access, set a separate app-specific password in `.env.local` with `VIT
 
 Questions must be created through the admin controls or a trusted Firebase setup step. Admin actions recalculate each player's score whenever a correct answer is selected.
 
-Enable **Anonymous** sign-in in Firebase Authentication. For a production deployment, add Firestore security rules that allow public reads and restrict writes to authenticated users or a trusted admin path. The browser-side admin password is a convenience port of the original app, not a security boundary, so keep it in local or deployment secrets instead of source control.
+Enable **Anonymous** sign-in in Firebase Authentication for normal visitors. Anonymous users can create submissions, while Firestore rules restrict question, settings, user updates, and prediction updates/deletes to administrators with the custom claim.
 
 ## GitHub Pages
 
-The workflow in `.github/workflows/deploy.yml` deploys on pushes to `main`. In the repository settings, set Pages to **GitHub Actions**, then add the six `VITE_FIREBASE_*` values and `VITE_SUPER_BOWL_ADMIN_PASSWORD` as repository Variables under **Settings > Secrets and variables > Actions**. Quote the admin password locally if it contains `#` characters.
+The workflow in `.github/workflows/deploy.yml` deploys on pushes to `main`. In the repository settings, set Pages to **GitHub Actions**, then add the six `VITE_FIREBASE_*` values as repository Variables under **Settings > Secrets and variables > Actions**.
 
 The Vite base path is set to `/SuperBowlPredictor/`, matching this repository name. Change it in `vite.config.ts` if the repository name changes.

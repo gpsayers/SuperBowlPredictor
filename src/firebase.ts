@@ -1,5 +1,5 @@
 import { getApps, initializeApp } from 'firebase/app'
-import { getAuth, signInAnonymously, type Auth } from 'firebase/auth'
+import { getAuth, signInAnonymously, signInWithEmailAndPassword, signOut, type Auth } from 'firebase/auth'
 import {
 	addDoc,
 	collection,
@@ -44,6 +44,20 @@ const requireDb = () => {
 
 async function ensureSignedIn() {
 	if (auth && !auth.currentUser) await signInAnonymously(auth)
+}
+
+export async function signInAdmin(email: string, password: string) {
+	if (!auth) throw new Error('Firebase is not configured.')
+	await signInWithEmailAndPassword(auth, email, password)
+	const token = await auth.currentUser?.getIdTokenResult(true)
+	if (token?.claims.admin !== true) {
+		await signOut(auth)
+		throw new Error('This account is not authorized for admin access.')
+	}
+}
+
+export async function signOutAdmin() {
+	if (auth) await signOut(auth)
 }
 
 export async function getQuestions(): Promise<Question[]> {
