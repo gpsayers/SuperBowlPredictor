@@ -35,9 +35,10 @@ async function renderHome() {
 
 async function showUser(id: string, name: string) {
   const [predictions, questions] = await Promise.all([getPredictions(id), getQuestions()])
-  const questionText = new Map(questions.map((question) => [question.id, question.text]))
+  const predictionsByQuestion = new Map(predictions.map((prediction) => [prediction.questionId, prediction]))
+  const orderedPredictions = questions.map((question) => predictionsByQuestion.get(question.id)).filter((prediction): prediction is typeof predictions[number] => Boolean(prediction))
   const modal = document.createElement('dialog')
-  modal.innerHTML = `<form method="dialog" class="modal"><button class="close" aria-label="Close">x</button><p class="eyebrow">Prediction card</p><h2>${escapeHtml(name)}</h2>${predictions.length ? predictions.map((prediction) => `<div class="answer"><span>${escapeHtml(questionText.get(prediction.questionId) ?? 'Question')}</span><strong>${escapeHtml(prediction.selectedAnswer)}</strong></div>`).join('') : '<p>No predictions found.</p>'}</form>`
+  modal.innerHTML = `<form method="dialog" class="modal"><button class="close" aria-label="Close">x</button><p class="eyebrow">Prediction card</p><h2>${escapeHtml(name)}</h2>${orderedPredictions.length ? orderedPredictions.map((prediction) => `<div class="answer"><span>${escapeHtml(questions.find((question) => question.id === prediction.questionId)?.text ?? 'Question')}</span><strong>${escapeHtml(prediction.selectedAnswer)}</strong></div>`).join('') : '<p>No predictions found.</p>'}</form>`
   document.body.append(modal); modal.showModal(); modal.addEventListener('close', () => modal.remove())
 }
 
