@@ -19,8 +19,9 @@ For admin access, set a separate app-specific password in `.env.local` with `VIT
 - `questions`: `{ text, options: string[], correctAnswer, createdAt }`
 - `users`: `{ name, score, createdAt }`
 - `predictions`: `{ userId, questionId, selectedAnswer }`
+- `settings/submissions`: `{ enabled: boolean }`
 
-The first visit to **Join** seeds the five questions from the original project when the `questions` collection is empty. Admin actions recalculate each player's score whenever a correct answer is selected.
+Questions must be created through the admin controls or a trusted Firebase setup step. Admin actions recalculate each player's score whenever a correct answer is selected.
 
 Enable **Anonymous** sign-in in Firebase Authentication. For a production deployment, add Firestore security rules that allow public reads and restrict writes to authenticated users or a trusted admin path. The browser-side admin password is a convenience port of the original app, not a security boundary, so keep it in local or deployment secrets instead of source control.
 

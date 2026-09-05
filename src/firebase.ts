@@ -4,12 +4,14 @@ import {
 	addDoc,
 	collection,
 	doc,
+	getDoc,
 	getDocs,
 	getFirestore,
 	limit,
 	orderBy,
 	query,
 	serverTimestamp,
+	setDoc,
 	updateDoc,
 	writeBatch,
 	type Firestore,
@@ -32,6 +34,8 @@ export const auth: Auth | null = app ? getAuth(app) : null
 export type Question = { id: string; text: string; options: string[]; correctAnswer: string | null }
 export type User = { id: string; name: string; score: number }
 export type Prediction = { id: string; userId: string; questionId: string; selectedAnswer: string }
+
+const submissionSettingsRef = () => doc(requireDb(), 'settings', 'submissions')
 
 const requireDb = () => {
 	if (!db) throw new Error('Firebase is not configured. Add the values in .env.local.')
@@ -59,9 +63,20 @@ export async function getPredictions(userId: string): Promise<Prediction[]> {
 		.filter((prediction) => prediction.userId === userId)
 }
 
+export async function getSubmissionsEnabled(): Promise<boolean> {
+	const snapshot = await getDoc(submissionSettingsRef())
+	return snapshot.exists() ? snapshot.data().enabled !== false : true
+}
+
+export async function setSubmissionsEnabled(enabled: boolean) {
+	await ensureSignedIn()
+	await setDoc(submissionSettingsRef(), { enabled })
+}
+
 export async function createUserWithPredictions(name: string, answers: Record<string, string>) {
 	await ensureSignedIn()
 	const database = requireDb()
+	if (!(await getSubmissionsEnabled())) throw new Error('No new submissions at this time')
 	const existing = await getDocs(query(collection(database, 'users')))
 	if (existing.docs.some((item) => String(item.data().name).toLowerCase() === name.toLowerCase())) {
 		throw new Error(`A player with the name "${name}" already exists.`)

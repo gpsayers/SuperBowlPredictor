@@ -7,7 +7,9 @@ import {
   firebaseConfigured,
   getPredictions,
   getQuestions,
+  getSubmissionsEnabled,
   getUsers,
+  setSubmissionsEnabled,
   updateQuestion,
 } from './firebase'
 
@@ -15,23 +17,10 @@ const app = document.querySelector<HTMLDivElement>('#app')!
 const adminSessionKey = 'superBowlAdminSessionExpires'
 const adminSessionDuration = 15 * 60 * 1000
 let adminSessionTimer: number | undefined
-const defaultQuestions = [
-  ['Coin Toss Result?', ['Heads', 'Tails']],
-  ['Gatorade Color poured on winning coach?', ['Orange', 'Blue', 'Red', 'Purple', 'Clear/Water', 'None']],
-  ['Length of National Anthem?', ['Over 2:00', 'Under 2:00']],
-  ['Who will win MVP?', ['Quarterback (Winning Team)', 'Defensive Player', 'Running Back', 'Wide Receiver', 'Kicker']],
-  ['First Commercial Brand?', ['Beer/Alcohol', 'Car/Auto', 'Movie Trailer', 'Food/Snack', 'Tech/Phone']],
-] as const
 
 const escapeHtml = (value: unknown) => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]!)
 const page = (content: string) => { const view = location.hash.slice(1) || 'home'; const navLink = (route: string, icon: string, label: string) => `<a class="${view === route ? 'active' : ''}" href="#${route}"${view === route ? ' aria-current="page"' : ''}><span class="nav-icon">${icon}</span>${label}</a>`; return `<main class="shell"><nav class="topbar"><a class="brand" href="#home"><span class="brand-mark">SB</span><strong>PREDICTOR</strong> <b>'26</b></a><div class="nav-links">${navLink('home', '♜', 'Leaderboard')}${navLink('join', '♧', 'Join Now')}${navLink('admin', '♢', 'Admin')}</div></nav>${content}<footer><span>Built for the big game</span><span>${firebaseConfigured ? 'Firebase connected' : 'Demo mode'}</span></footer></main>` }
 const loading = (message: string) => page(`<div class="loading"><span class="spinner"></span>${message}</div>`)
-
-async function seedQuestions() {
-  const questions = await getQuestions()
-  if (!questions.length) for (const [text, options] of defaultQuestions) await createQuestion(text, [...options])
-  return questions.length ? questions : getQuestions()
-}
 
 async function renderHome() {
   app.innerHTML = loading('Loading the leaderboard...')
@@ -56,7 +45,11 @@ async function showUser(id: string, name: string) {
 async function renderJoin() {
   app.innerHTML = loading('Loading questions...')
   try {
-    const questions = await seedQuestions()
+    const [questions, submissionsEnabled] = await Promise.all([getQuestions(), getSubmissionsEnabled()])
+    if (!submissionsEnabled) {
+      app.innerHTML = page('<section class="join-page join-closed"><p class="eyebrow">Entry closed</p><h1>No new submissions at this time</h1></section>')
+      return
+    }
     app.innerHTML = page(`<section class="join-page">
       <h1>MAKE YOUR PREDICTIONS</h1>
       <p class="join-subtitle">Enter your name and predict the outcomes. Each correct answer earns you points.</p>
@@ -101,8 +94,9 @@ async function renderAdminPanel() {
   app.innerHTML = page(`<section class="admin-page"><div id="admin-content" class="admin-content">Loading controls...</div></section>`)
   const content = document.querySelector('#admin-content')!
   try {
-    const [questions, users] = await Promise.all([getQuestions(), getUsers()])
+    const [questions, users, submissionsEnabled] = await Promise.all([getQuestions(), getUsers(), getSubmissionsEnabled()])
     content.innerHTML = `<form id="new-question" class="new-question" hidden><div><label for="new-question-text">Question</label><input id="new-question-text" name="text" required placeholder="Question text"></div><div><label for="new-question-options">Answer options</label><input id="new-question-options" name="options" required placeholder="Options, separated by commas"></div><div class="new-question-actions"><button class="admin-cancel-button" id="cancel-question-form" type="button">Cancel</button><button class="admin-add-button" type="submit">Save Question</button></div></form><section class="admin-section admin-questions"><div class="admin-question-list">${questions.map((question, index) => `<article class="admin-question"><header class="admin-question-header"><div><span class="question-badge">Q${index + 1}</span><strong>${escapeHtml(question.text)}</strong></div><div class="admin-question-actions"><button class="icon-button" type="button" aria-label="Edit question" title="Edit question" data-edit-question="${question.id}">✎</button><button class="icon-button delete-icon" type="button" aria-label="Delete question" title="Delete question" data-delete-question="${question.id}">♧</button></div></header><div class="admin-answer-list">${question.options.map((option) => `<button class="answer-button ${question.correctAnswer === option ? 'correct' : ''}" data-question="${question.id}" data-answer="${escapeHtml(option)}"><span>${escapeHtml(option)}</span><span class="answer-check" aria-hidden="true">${question.correctAnswer === option ? '✓' : '○'}</span></button>`).join('')}</div><p class="admin-question-hint">Tap an option to mark it as the correct answer.</p></article>`).join('') || '<p class="empty">No questions yet.</p>'}</div></section><section class="admin-section admin-players"><h2>Players</h2>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`
+    content.insertAdjacentHTML('beforeend', `<section class="admin-section submission-control"><div><h2>Submissions</h2><p>Allow visitors to submit new predictions.</p></div><label class="admin-switch"><input id="submissions-enabled" type="checkbox"${submissionsEnabled ? ' checked' : ''}><span aria-hidden="true"></span><strong>${submissionsEnabled ? 'Open' : 'Closed'}</strong></label></section>`)
     content.querySelector('.admin-players')?.remove()
     content.insertAdjacentHTML('afterbegin', `<section class="admin-section admin-users"><h1 class="admin-section-title">Manage Users</h1>${users.map((user) => `<div class="admin-row"><span>${escapeHtml(user.name)} <small>${user.score} pts</small></span><button data-delete-user="${user.id}">Delete</button></div>`).join('') || '<p class="empty">No players yet.</p>'}</section>`)
     content.querySelector('.admin-users')?.insertAdjacentHTML('afterend', `<header class="admin-page-header"><div><h1 class="admin-section-title">GAME CONTROL</h1><p>Manage questions and set results.</p></div><button class="admin-add-button" id="show-question-form" type="button"><span aria-hidden="true">+</span> Add Question</button></header>`)
@@ -118,6 +112,7 @@ async function renderAdminPanel() {
     document.querySelectorAll<HTMLElement>('[data-delete-question]').forEach((button) => button.addEventListener('click', async () => { await deleteQuestion(button.dataset.deleteQuestion!); renderAdminPanel() }))
     document.querySelectorAll<HTMLElement>('[data-question]').forEach((button) => button.addEventListener('click', async () => { await updateQuestion(button.dataset.question!, { correctAnswer: button.dataset.answer }); renderAdminPanel() }))
     questionForm.addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget as HTMLFormElement); const text = String(form.get('text')); const options = String(form.get('options')).split(',').map((option) => option.trim()).filter(Boolean); if (editingQuestionId) await updateQuestion(editingQuestionId, { text, options }); else await createQuestion(text, options); renderAdminPanel() })
+    document.querySelector<HTMLInputElement>('#submissions-enabled')!.addEventListener('change', async (event) => { const input = event.currentTarget as HTMLInputElement; input.disabled = true; await setSubmissionsEnabled(input.checked); renderAdminPanel() })
   } catch (error) { renderError(error) }
 }
 
