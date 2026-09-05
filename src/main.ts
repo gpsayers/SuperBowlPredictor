@@ -129,7 +129,7 @@ async function renderAdmin() {
       </div>
       <h1>ADMIN ACCESS</h1>
       <form id="admin-login-form" class="admin-login-form">
-        <input id="admin-email" type="email" name="email" placeholder="Admin email" autocomplete="username" required />
+        <input id="admin-email" type="email" name="email" placeholder="Email" autocomplete="username" required />
         <div class="admin-password-wrap">
           <input id="admin-password" type="password" name="password" placeholder="Password" autocomplete="current-password" required />
           <button type="button" class="admin-password-toggle" aria-label="Toggle password visibility">⋯</button>
